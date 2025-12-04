@@ -23,19 +23,28 @@ struct sockaddr_in {
 // adding the command execution
 std::string ExecuteCommand(std::string command)
 {
-    if (command.at(0) == 'c' && command.at(1) == 'd')
+    if (command.rfind("cd ", 0) == 0)
     {
-        if (command.length() <= 3)
-        {
-            return "Error:no directory spcified";
-        }
-        command = command.substr(3);
 
-        if (chdir(command.c_str()) == -1)
+        // 2.extract the path
+        std::string path = command.substr(3);
+
+        // 3.eliminate the whitespaces and new lines character(if they exists)
+        while (!path.empty() && (path.back() == '\n' || path.back() == '\r' || path.back() == ' '))
         {
-            return "Error:couldn't change directory";
+            path.pop_back();
         }
-        return "changed directory";
+
+        // 4. try to change the path
+        if (chdir(path.c_str()) == 0)
+        {
+            // Succes, trimitem output gol sau confirmare
+            return "directory change sucessfully to: " + path;
+        }
+        else
+        {
+            return "Eroare: Nu am putut gasi directorul " + path + "\n";
+        }
     }
     else
     {
