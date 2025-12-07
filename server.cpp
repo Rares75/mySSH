@@ -11,14 +11,6 @@
 
 // TODO: put everything in romanian at the end
 #define PORT 8080
-/*
-struct sockaddr_in {
-    short sin_family; // e.g. AF_INET, AF_INET6
-    unsigned short sin_port; // e.g. htons(3490)
-    struct in_addr sin_addr; // see struct in_addr, below
-    char sin_zero[8]; // zero this if you want to
-};
-*/
 
 // adding the command execution
 std::string ExecuteCommand(std::string command)
@@ -38,12 +30,12 @@ std::string ExecuteCommand(std::string command)
         // 4. try to change the path
         if (chdir(path.c_str()) == 0)
         {
-            // Succes, trimitem output gol sau confirmare
+            // Succes,sending a confirmation
             return "directory change sucessfully to: " + path;
         }
         else
         {
-            return "Eroare: Nu am putut gasi directorul " + path + "\n";
+            return "Error:Couldn't find the specified directory:" + path + "\n";
         }
     }
     else
@@ -58,6 +50,12 @@ std::string ExecuteCommand(std::string command)
         while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
             ExecutedCommand += buffer;
         pclose(pipe);
+
+        // If command produced no output, send confirmation message
+        if (ExecutedCommand.empty())
+        {
+            ExecutedCommand = "Command executed successfully (no output)\n";
+        }
         return ExecutedCommand;
     }
 }
@@ -109,19 +107,23 @@ int main()
     }
 
     // if the connection is made successfully we start the loop
+    std::cout << "[DEBUG] Entering main command loop" << std::endl;
     while (1)
     {
         // clear the output stream
         fflush(stdout);
 
+        std::cout << "[DEBUG] Waiting for command from client..." << std::endl;
         // if not, the connection is made successfully and we clear the string
         MessageFromClient.clear();
         MessageFromClient.resize(1024);
         int bytes_read = read(client, MessageFromClient.data(), MessageFromClient.size());
+        std::cout << "[DEBUG] Read returned: " << bytes_read << " bytes" << std::endl;
         if (bytes_read > 0)
         {
             MessageFromClient.resize(bytes_read); // Shrink to actual size
-            std::cout << "I received: " << MessageFromClient << "command" << std::endl;
+            std::cout << "[DEBUG] Command received: [" << MessageFromClient << "]" << std::endl;
+            std::cout << "[DEBUG] Command length: " << MessageFromClient.length() << " bytes" << std::endl;
         }
         else if (bytes_read < 0)
         {
@@ -136,14 +138,24 @@ int main()
             break; // exit loop and wait for a new connection
         }
         // test case
+        std::cout << "[DEBUG] Executing command..." << std::endl;
         MessageToClient = ExecuteCommand(MessageFromClient);
+        std::cout << "[DEBUG] Response length: " << MessageToClient.size() << " bytes" << std::endl;
+        std::cout << "[DEBUG] Response content: [" << MessageToClient << "]" << std::endl;
+
         size_t bytes_written = write(client, MessageToClient.data(), MessageToClient.size());
+        std::cout << "[DEBUG] Write returned: " << bytes_written << " bytes sent" << std::endl;
+
         if (bytes_written < 0)
         {
             perror("write error");
+            std::cout << "[DEBUG] Write failed, breaking loop" << std::endl;
+            break;
         }
         MessageToClient.clear(); // clear the message after sending it to client
+        std::cout << "[DEBUG] Command cycle complete, ready for next command" << std::endl;
     }
+    std::cout << "[DEBUG] Exited main loop, closing connections" << std::endl;
     close(client);
     close(sd);
     return 0;
