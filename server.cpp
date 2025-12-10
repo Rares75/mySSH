@@ -11,11 +11,14 @@
 #include <cryptopp/aes.h>
 #include <cryptopp/modes.h>
 #include <cryptopp/filters.h>
+#include "encryption.h"
 
+using namespace CryptoPP;
 // TODO: put everything in romanian at the end
 #define PORT 8080
 
-// adding the command execution
+// g++ -o name file_name.cpp -I./cryptopp -L./cryptopp -lcryptopp
+//  adding the command execution
 std::string ExecuteCommand(std::string command)
 {
     if (command.rfind("cd ", 0) == 0)
@@ -34,7 +37,7 @@ std::string ExecuteCommand(std::string command)
         if (chdir(path.c_str()) == 0)
         {
             // Succes,sending a confirmation
-            return "directory change sucessfully to: " + path;
+            return "directory change successfully to: " + path;
         }
         else
         {
@@ -67,8 +70,11 @@ int main()
 {
     // initialize all the data we need
     int sd;
-    std::string MessageFromClient;
-    std::string MessageToClient;
+    std::string commandFromClient;
+    std::string messageToClient;
+    std::string encryptedCommandFromClient;
+    std::string decrypredMessageToClient;
+
     struct sockaddr_in server;
     struct sockaddr_in from;
     int client;
@@ -102,64 +108,71 @@ int main()
         return errno;
     }
 
-    // make the accept, in case of something return an error
-    client = accept(sd, (struct sockaddr *)&from, &length);
-    if (client < 0)
-    {
-        perror("accept error.\n");
-    }
-
-    // if the connection is made successfully we start the loop
-    std::cout << "[DEBUG] Entering main command loop" << std::endl;
+    // Main server loop - accept clients one at a time
     while (1)
     {
-        // clear the output stream
-        fflush(stdout);
+        std::cout << "Waiting for client connection..." << std::endl;
 
-        std::cout << "[DEBUG] Waiting for command from client..." << std::endl;
-        // if not, the connection is made successfully and we clear the string
-        MessageFromClient.clear();
-        MessageFromClient.resize(1024);
-        int bytes_read = read(client, MessageFromClient.data(), MessageFromClient.size());
-        std::cout << "[DEBUG] Read returned: " << bytes_read << " bytes" << std::endl;
-        if (bytes_read > 0)
+        // Accept new client
+        client = accept(sd, (struct sockaddr *)&from, &length);
+        if (client < 0)
         {
-            MessageFromClient.resize(bytes_read); // Shrink to actual size
-            std::cout << "[DEBUG] Command received: [" << MessageFromClient << "]" << std::endl;
-            std::cout << "[DEBUG] Command length: " << MessageFromClient.length() << " bytes" << std::endl;
+            perror("accept error.\n");
+            continue;
         }
-        else if (bytes_read < 0)
-        {
-            perror("read error");
-            close(client);
-            break; // exit loop and wait for a new connection
-        }
-        else
-        {
-            std::cout << "client disconnected" << std::endl;
-            close(client);
-            break; // exit loop and wait for a new connection
-        }
-        // test case
-        std::cout << "[DEBUG] Executing command..." << std::endl;
-        MessageToClient = ExecuteCommand(MessageFromClient);
-        std::cout << "[DEBUG] Response length: " << MessageToClient.size() << " bytes" << std::endl;
-        std::cout << "[DEBUG] Response content: [" << MessageToClient << "]" << std::endl;
 
-        size_t bytes_written = write(client, MessageToClient.data(), MessageToClient.size());
-        std::cout << "[DEBUG] Write returned: " << bytes_written << " bytes sent" << std::endl;
+        std::cout << "Client connected. No other connections will be accepted until this client disconnects." << std::endl;
 
-        if (bytes_written < 0)
+        // Handle this client's commands
+        while (1)
         {
-            perror("write error");
-            std::cout << "[DEBUG] Write failed, breaking loop" << std::endl;
-            break;
+            // clear the output stream
+            fflush(stdout);
+
+            // if not, the connection is made successfully and we clear the string
+            encryptedCommandFromClient.clear();
+            encryptedCommandFromClient.resize(1024);
+            int bytes_read = read(client, encryptedCommandFromClient.data(), encryptedCommandFromClient.size()); // reading the encrypted command
+            if (bytes_read > 0)
+            {
+                encryptedCommandFromClient.resize(bytes_read); // Shrink to actual size
+                std::cout << "comanda criptata primita este: " << encryptedCommandFromClient << std::endl;
+            }
+            else if (bytes_read < 0)
+            {
+                perror("read error");
+                close(client);
+                break; // exit loop and wait for a new connection
+            }
+            else
+            {
+                std::cout << "client disconnected" << std::endl;
+                close(client);
+                break; // exit loop and wait for a new connection
+            }
+            // execute command
+            commandFromClient = decrypt(encryptedCommandFromClient);
+            std::cout << "comanda decriptata este: " << commandFromClient << std::endl;
+
+            messageToClient = ExecuteCommand(commandFromClient);
+            messageToClient = encrypt(messageToClient);
+            std::cout << "mesajul criptat este:" << messageToClient;
+            size_t bytes_written = write(client, messageToClient.data(), messageToClient.size());
+
+            if (bytes_written < 0)
+            {
+                perror("write error");
+                break;
+            }
+            messageToClient.clear(); // clear the message after sending it to client
         }
-        MessageToClient.clear(); // clear the message after sending it to client
-        std::cout << "[DEBUG] Command cycle complete, ready for next command" << std::endl;
+
+        // Client disconnected, close their socket and wait for next client
+        close(client);
+        std::cout << "Client socket closed. Ready for new connection." << std::endl;
     }
-    std::cout << "[DEBUG] Exited main loop, closing connections" << std::endl;
-    close(client);
+
+    // This should never be reached, but clean up if it somehow is
     close(sd);
     return 0;
 }

@@ -10,14 +10,18 @@
 #include <signal.h>
 #include <arpa/inet.h>
 
+#include "encryption.h"
+
+using namespace CryptoPP;
 #define PORT 8080
 
 int main()
 {
     signal(SIGINT, SIG_DFL); // close the terminal in case you press ctrl+C
 
-    std::string SendMessage;
-    std::string RecivedMessage;
+    std::string inputCommand;
+    std::string receivedEncryptedCommand;
+    std::string receivedCommand;
     sockaddr_in client;
 
     int sd;
@@ -37,26 +41,34 @@ int main()
     }
     while (1)
     {
-        std::getline(std::cin, SendMessage);
-        size_t writeBytes = write(sd, SendMessage.data(), SendMessage.size());
+        std::getline(std::cin, inputCommand);
+        std::cout << "am primit comanda: " << inputCommand << std::endl;
+
+        std::string encryptedCommand = encrypt(inputCommand);
+        std::cout << "comanda criptata este: " << encryptedCommand << std::endl;
+        size_t writeBytes = write(sd, encryptedCommand.data(), encryptedCommand.size());
         if (writeBytes < 0)
         {
             perror("couldn't send the message to the server");
         }
-        SendMessage.clear();
-        RecivedMessage.resize(1024);
-        size_t readBytes = read(sd, RecivedMessage.data(), RecivedMessage.size());
+        inputCommand.clear();
+        encryptedCommand.clear();
+        receivedEncryptedCommand.resize(1024);
+        size_t readBytes = read(sd, receivedEncryptedCommand.data(), receivedEncryptedCommand.size());
         if (readBytes < 0)
         {
             perror("couldn't read the message from the server");
         }
         else
         {
-            RecivedMessage.resize(readBytes);
-            std::cout << RecivedMessage << std::endl;
+            receivedEncryptedCommand.resize(readBytes);
+            std::cout << "mesajul criptat primit este:" << receivedEncryptedCommand << std::endl;
+            receivedCommand = decrypt(receivedEncryptedCommand);
+            std::cout << receivedCommand << "\n";
         }
 
-        RecivedMessage.clear();
+        receivedEncryptedCommand.clear();
+        receivedCommand.clear();
     }
     close(sd);
     return 0;

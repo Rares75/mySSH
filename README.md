@@ -101,7 +101,7 @@ pwd
 /home/user/Projects/mySSH
 
 cd /tmp
-directory change sucessfully to: /tmp
+directory change successfully to: /tmp
 
 ls
 temp_file1
