@@ -8,6 +8,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/modes.h>
+#include <cryptopp/filters.h>
 
 // TODO: put everything in romanian at the end
 #define PORT 8080
