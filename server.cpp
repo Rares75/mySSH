@@ -11,12 +11,26 @@
 #include <cryptopp/aes.h>
 #include <cryptopp/modes.h>
 #include <cryptopp/filters.h>
+#include <sys/wait.h>
 #include "encryption.h"
 
 using namespace CryptoPP;
-// TODO: put everything in romanian at the end
-#define PORT 8080
 
+#define PORT 8080
+#define MAX_CLIENTS 3
+
+int activeClients = 0;
+
+// Signal handler to clean up zombie processes and track client count
+void sigchld_handler(int sig)
+{
+    int saved_errno = errno;
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+    {
+        activeClients--;
+    }
+    errno = saved_errno;
+}
 // g++ -o name file_name.cpp -I./cryptopp -L./cryptopp -lcryptopp
 //  adding the command execution
 std::string ExecuteCommand(std::string command)
@@ -70,17 +84,13 @@ int main()
 {
     // initialize all the data we need
     int sd;
-    std::string commandFromClient;
-    std::string messageToClient;
-    std::string encryptedCommandFromClient;
-    std::string decrypredMessageToClient;
-
     struct sockaddr_in server;
     struct sockaddr_in from;
     int client;
     unsigned int length = sizeof(from);
 
-    signal(SIGINT, SIG_DFL); // close the server if you press ctrl+c
+    signal(SIGINT, SIG_DFL);          // close the server if you press ctrl+c
+    signal(SIGCHLD, sigchld_handler); // handle child process termination
 
     // create the connection with the server
     if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
@@ -101,75 +111,112 @@ int main()
         return errno;
     }
 
-    // listen for new connections
-    if (listen(sd, 1) == -1)
+    // listen for new connections (backlog of MAX_CLIENTS)
+    if (listen(sd, MAX_CLIENTS) == -1)
     {
         perror("server is full\n");
         return errno;
     }
 
-    // Main server loop - accept clients one at a time
+    // Main server loop - accept clients concurrently
     while (1)
     {
-        std::cout << "Waiting for client connection..." << std::endl;
+        std::cout << "Waiting for client connection... (Active clients: " << activeClients << "/" << MAX_CLIENTS << ")" << std::endl;
 
         // Accept new client
         client = accept(sd, (struct sockaddr *)&from, &length);
         if (client < 0)
         {
+            if (errno == EINTR)
+            {
+                // Interrupted by signal, continue
+                continue;
+            }
             perror("accept error.\n");
             continue;
         }
 
-        std::cout << "Client connected. No other connections will be accepted until this client disconnects." << std::endl;
-
-        // Handle this client's commands
-        while (1)
+        // Check if we can accept more clients
+        if (activeClients >= MAX_CLIENTS)
         {
-            // clear the output stream
-            fflush(stdout);
-
-            // if not, the connection is made successfully and we clear the string
-            encryptedCommandFromClient.clear();
-            encryptedCommandFromClient.resize(1024);
-            int bytes_read = read(client, encryptedCommandFromClient.data(), encryptedCommandFromClient.size()); // reading the encrypted command
-            if (bytes_read > 0)
-            {
-                encryptedCommandFromClient.resize(bytes_read); // Shrink to actual size
-                std::cout << "comanda criptata primita este: " << encryptedCommandFromClient << std::endl;
-            }
-            else if (bytes_read < 0)
-            {
-                perror("read error");
-                close(client);
-                break; // exit loop and wait for a new connection
-            }
-            else
-            {
-                std::cout << "client disconnected" << std::endl;
-                close(client);
-                break; // exit loop and wait for a new connection
-            }
-            // execute command
-            commandFromClient = decrypt(encryptedCommandFromClient);
-            std::cout << "comanda decriptata este: " << commandFromClient << std::endl;
-
-            messageToClient = ExecuteCommand(commandFromClient);
-            messageToClient = encrypt(messageToClient);
-            std::cout << "mesajul criptat este:" << messageToClient;
-            size_t bytes_written = write(client, messageToClient.data(), messageToClient.size());
-
-            if (bytes_written < 0)
-            {
-                perror("write error");
-                break;
-            }
-            messageToClient.clear(); // clear the message after sending it to client
+            std::cout << "Maximum clients reached. Rejecting connection." << std::endl;
+            const char *rejectMsg = "Server is full. Please try again later.\n";
+            write(client, rejectMsg, strlen(rejectMsg));
+            close(client);
+            continue;
         }
 
-        // Client disconnected, close their socket and wait for next client
-        close(client);
-        std::cout << "Client socket closed. Ready for new connection." << std::endl;
+        activeClients++;
+        std::cout << "Client connected. (Active clients: " << activeClients << "/" << MAX_CLIENTS << ")" << std::endl;
+
+        // Fork to handle this client
+        pid_t pid = fork();
+
+        if (pid == -1)
+        {
+            perror("fork error");
+            activeClients--;
+            close(client);
+            continue;
+        }
+
+        if (pid == 0)
+        {
+            // Child process - handle this client
+            close(sd); // Child doesn't need the listening socket
+
+            std::string commandFromClient;
+            std::string messageToClient;
+            std::string encryptedCommandFromClient;
+
+            // Handle this client's commands
+            while (1)
+            {
+                encryptedCommandFromClient.clear();
+                encryptedCommandFromClient.resize(1024);
+
+                int bytes_read = read(client, encryptedCommandFromClient.data(), encryptedCommandFromClient.size());
+                if (bytes_read > 0)
+                {
+                    encryptedCommandFromClient.resize(bytes_read);
+                    std::cout << "[Client " << getpid() << "] Encrypted command received" << std::endl;
+                }
+                else if (bytes_read < 0)
+                {
+                    perror("read error");
+                    break;
+                }
+                else
+                {
+                    std::cout << "[Client " << getpid() << "] Client disconnected" << std::endl;
+                    break;
+                }
+
+                // Decrypt and execute command
+                commandFromClient = decrypt(encryptedCommandFromClient);
+                std::cout << "[Client " << getpid() << "] Command: " << commandFromClient << std::endl;
+
+                messageToClient = ExecuteCommand(commandFromClient);
+                messageToClient = encrypt(messageToClient);
+
+                size_t bytes_written = write(client, messageToClient.data(), messageToClient.size());
+                if (bytes_written < 0)
+                {
+                    perror("write error");
+                    break;
+                }
+                messageToClient.clear();
+            }
+
+            close(client);
+            std::cout << "[Client " << getpid() << "] Connection closed" << std::endl;
+            exit(0); // Child exits after handling client
+        }
+        else
+        {
+            // Parent process - close client socket (child has it) and continue accepting
+            close(client);
+        }
     }
 
     // This should never be reached, but clean up if it somehow is

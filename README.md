@@ -4,25 +4,28 @@ A secure client-server application that allows remote command execution over an 
 
 ## Features
 
-- **🔐 AES-128 Encryption**: All communication between client and server is encrypted using CBC mode
+- **AES-128 Encryption**: All communication between client and server is encrypted using CBC mode
 - **Remote Command Execution**: Execute shell commands on the server from the client
 - **Directory Navigation**: Special handling for `cd` command to change server's working directory
 - **Persistent Connection**: Single connection handles multiple commands
-- **Single Client Mode**: Server accepts one client at a time, rejecting others until disconnection
+- **Concurrent Multi-Client Mode**: Server supports up to **3 simultaneous clients** using fork-based concurrency
 - **Real-time Output**: Command output is sent back to the client immediately
 - **Error Handling**: Comprehensive error checking for network and command execution failures
+- **Automatic Cleanup**: SIGCHLD handler automatically cleans up zombie processes
 
 ## Architecture
 
 ### Server (`server.cpp`)
 
 - Listens on port **8080**
-- Accepts one client connection at a time (blocks additional clients)
+- Supports up to **3 concurrent clients** (`MAX_CLIENTS = 3`)
+- Uses **fork()** to handle each client in a separate child process
 - **Decrypts** incoming commands using AES-128 CBC
 - Executes commands received from the client using `popen()`
 - Special handling for `cd` command using `chdir()`
 - **Encrypts** command output before sending back to client
-- Waits for next client after current client disconnects
+- SIGCHLD handler cleans up zombie processes and tracks active client count
+- Rejects new connections when maximum clients reached
 
 ### Client (`client.cpp`)
 
@@ -62,27 +65,14 @@ cd ..
 ### Compile the Server
 
 ```bash
-g++ -o server server.cpp -I./cryptopp -L./cryptopp -lcryptopp -pthread
-```
-
-Or with static linking (recommended):
-
-```bash
 g++ -o server server.cpp -I./cryptopp ./cryptopp/libcryptopp.a -pthread
-The server will display:
-
 ```
 
-the server has turned on
-Waiting for client connection...
-
-````
-
-Or with static linking (recommended):
+### Compile the Client
 
 ```bash
 g++ -o client client.cpp -I./cryptopp ./cryptopp/libcryptopp.a -pthread
-````
+```
 
 ## Usage
 
@@ -98,8 +88,7 @@ The server will display:
 
 ```
 the server has turned on
-[DEBUG] Entering main command loop
-[DEBUG] Waiting for command from client...
+Waiting for client connection... (Active clients: 0/3)
 ```
 
 ### Starting the Client
@@ -146,20 +135,19 @@ temp_file2
 ```
 
 **Server Terminal:**
-**Server Terminal:**
 
 ```
 ./server
 the server has turned on
-Waiting for client connection...
-Client connected. No other connections will be accepted until this client disconnects.
-comanda criptata primita este: [encrypted binary data]
-comanda decriptata este: ls
-mesajul criptat este:[encrypted binary data]
-...
-client disconnected
-Client socket closed. Ready for new connection.
-Waiting for client connection...
+Waiting for client connection... (Active clients: 0/3)
+Client connected. (Active clients: 1/3)
+[Client 12345] Encrypted command received
+[Client 12345] Command: ls
+[Client 12345] Encrypted command received
+[Client 12345] Command: pwd
+[Client 12345] Client disconnected
+[Client 12345] Connection closed
+Waiting for client connection... (Active clients: 0/3)
 ```
 
 ## Command Handling
@@ -179,14 +167,12 @@ All other commands are executed via shell:
 
 ## Limitations
 
-- Single client connection at a time (by design)
+- Maximum of 3 concurrent client connections
 - Fixed shared key (KEY and IV hardcoded in `encryption.h`)
 - No key exchange protocol
 - Buffer size limited to 1024 bytes per message
 - Command output limited by buffer size
-- No user authentication (only encryption)essage
-- Command output limited by buffer size
-- No encryption (plaintext communication)
+- No user authentication (only encryption)
 
 ## Network Details
 
@@ -228,21 +214,16 @@ The same KEY and IV must be present in both client and server for communication 
 ## Future Improvements
 
 - ✅ ~~Encryption~~ (Implemented with AES-128)
+- ✅ ~~Multi-client support~~ (Implemented with fork-based concurrency, max 3 clients)
 - Key exchange protocol (Diffie-Hellman)
 - User authentication mechanism
-- Multi-client support using threading or `select()`
 - Command whitelisting/blacklisting
 - Better error messages
 - Configuration file for port and settings
 - Support for file transfer
 - Command history
 - Session timeout
-- Key rotation/SSL)
-- Command whitelisting
-- Better error messages
-- Configuration file for port and settings
-- Support for file transfer
-- Command history
+- SSL/TLS support
 
 ## License
 
