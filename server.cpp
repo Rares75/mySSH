@@ -140,7 +140,7 @@ int main()
         if (activeClients >= MAX_CLIENTS)
         {
             std::cout << "Maximum clients reached. Rejecting connection." << std::endl;
-            const char *rejectMsg = "Server is full. Please try again later.\n";
+            const char *rejectMsg = "server is full,connect later";
             write(client, rejectMsg, strlen(rejectMsg));
             close(client);
             continue;
@@ -148,6 +148,10 @@ int main()
 
         activeClients++;
         std::cout << "Client connected. (Active clients: " << activeClients << "/" << MAX_CLIENTS << ")" << std::endl;
+
+        // Send welcome message to client
+        const char *welcomeMsg = "you are connected,enter commands: ";
+        write(client, welcomeMsg, strlen(welcomeMsg));
 
         // Fork to handle this client
         pid_t pid = fork();

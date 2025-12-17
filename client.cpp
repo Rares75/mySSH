@@ -39,6 +39,23 @@ int main()
         perror("connection failed");
         return errno;
     }
+
+    // Receive welcome message or rejection from server
+    char welcomeBuffer[256];
+    ssize_t welcomeBytes = read(sd, welcomeBuffer, sizeof(welcomeBuffer) - 1);
+    if (welcomeBytes > 0)
+    {
+        welcomeBuffer[welcomeBytes] = '\0';
+        std::cout << welcomeBuffer << std::endl;
+
+        // Check if server rejected us
+        if (strstr(welcomeBuffer, "server is full") != nullptr)
+        {
+            close(sd);
+            return 0;
+        }
+    }
+
     while (1)
     {
         std::getline(std::cin, inputCommand);
